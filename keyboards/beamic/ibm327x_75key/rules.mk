@@ -1,1 +1,1 @@
-SRC += ../matrix.c
+SRC += ../matrix.c ../histogram.c

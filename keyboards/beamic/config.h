@@ -12,8 +12,10 @@
 // Ticks before unselecting the column and checking the result
 #define BEAM_COL_WINDOW (BEAM_COL_PERIOD / 2)
 
-// TODO: fix hardcoded threshold
-#define BEAM_THRESHOLD 0x480
+// Ticks below this threshold are low-capacitance (pressed), above is
+// high-capacitance (unpressed). This is expressed as a fraction of the timer
+// frequency since it's not dependent on how much time we linger on each column.
+#define BEAM_THRESHOLD (CAPTURE_FREQUENCY / 10000 * 3 / 32)
 
 /*
  * Feature disable options

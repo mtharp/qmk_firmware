@@ -5,6 +5,7 @@
 #include "gpio.h"
 #include "matrix.h"
 #include "quantum.h"
+#include "histogram.h"
 
 static pin_t col_pins[MATRIX_COLS] = MATRIX_COL_PINS;
 static pin_t row_pins[MATRIX_ROWS] = MATRIX_ROW_PINS;
@@ -159,6 +160,10 @@ OSAL_IRQ_HANDLER(STM32_TIM1_CC_HANDLER) {
     OSAL_IRQ_EPILOGUE();
 }
 
+#if BEAM_THRESHOLD > BEAM_COL_WINDOW / 2
+#    warning Threshold for key-presses is too large to measure in the alotted window. Reduce BEAM_SCAN_RATE.
+#endif
+
 bool matrix_scan_custom(matrix_row_t current_matrix[]) {
     // wait for interrupts to scan all the raw values
     if (!chEvtWaitAnyTimeout(ALL_EVENTS, TIME_MS2I(100))) {
@@ -181,5 +186,6 @@ bool matrix_scan_custom(matrix_row_t current_matrix[]) {
             current_matrix[row] = new_row;
         }
     }
+    value_histogram(&beam_values[0][0]);
     return changed;
 }
