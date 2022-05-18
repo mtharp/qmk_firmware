@@ -3,6 +3,7 @@
 
 #include <string.h>
 #include "quantum.h"
+#include "beam_config.h"
 
 // #define HIST_BINS 24
 // This is log2(max_value/HIST_BINS) . A good max_value is 2*BEAM_THRESHOLD
@@ -13,13 +14,6 @@ void value_histogram(uint16_t *values) {
 #ifdef HIST_BINS
     static systime_t last_report = 0;
     static uint8_t   val_bins[HIST_BINS];
-    if (chVTTimeElapsedSinceX(last_report) < TIME_MS2I(250)) {
-        return;
-    }
-    last_report = chVTGetSystemTimeX();
-    for (uint8_t i = 0; i < HIST_BINS; i++) {
-        val_bins[i] = 0;
-    }
     for (int i = 0; i < MATRIX_ROWS * MATRIX_COLS; i++, values++) {
         uint8_t hist_val = *values >> HIST_SHIFT;
         if (hist_val >= HIST_BINS) {
@@ -27,6 +21,12 @@ void value_histogram(uint16_t *values) {
         }
         val_bins[hist_val]++;
     }
+
+    if (chVTTimeElapsedSinceX(last_report) < TIME_MS2I(250)) {
+        return;
+    }
+    last_report = chVTGetSystemTimeX();
+
     uint8_t thresh_bin = BEAM_THRESHOLD >> HIST_SHIFT;
     xprintf("[");
     for (uint8_t i = 0; i < HIST_BINS; i++) {
@@ -39,14 +39,17 @@ void value_histogram(uint16_t *values) {
             }
         } else if (count == 0) {
             xprintf(" ");
-        } else if (count < 5) {
-            xprintf(".");
         } else if (count < 20) {
+            xprintf(".");
+        } else if (count < 200) {
             xprintf("o");
         } else {
             xprintf("O");
         }
     }
     xprintf("]\n");
+    for (uint8_t i = 0; i < HIST_BINS; i++) {
+        val_bins[i] = 0;
+    }
 #endif
 }

@@ -5,6 +5,7 @@
 #include "gpio.h"
 #include "matrix.h"
 #include "quantum.h"
+#include "beam_config.h"
 #include "histogram.h"
 
 static pin_t col_pins[MATRIX_COLS] = MATRIX_COL_PINS;
@@ -161,7 +162,10 @@ OSAL_IRQ_HANDLER(STM32_TIM1_CC_HANDLER) {
 }
 
 #if BEAM_THRESHOLD > BEAM_COL_WINDOW / 2
-#    warning Threshold for key-presses is too large to measure in the alotted window. Reduce BEAM_SCAN_RATE.
+#    error Threshold for key-presses is too large to measure in the alotted window. Reduce BEAM_SCAN_RATE.
+#endif
+#if BEAM_COL_PERIOD >= 65535
+#    error Timer period is too long. Increase BEAM_SCAN_RATE.
 #endif
 
 bool matrix_scan_custom(matrix_row_t current_matrix[]) {
