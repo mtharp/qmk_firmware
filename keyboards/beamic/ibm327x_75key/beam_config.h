@@ -12,4 +12,14 @@
 // Ticks below this threshold are low-capacitance (pressed), above is
 // high-capacitance (unpressed). This is expressed as a fraction of the timer
 // frequency since it's not dependent on how much time we linger on each column.
-#define BEAM_THRESHOLD (CAPTURE_FREQUENCY / 10000 * 3 / 32)
+#define BEAM_THRESHOLD (CAPTURE_FREQUENCY / 10000 * 3 / 16)
+
+// Key matrix positions corresponding to unused or calibration pads. QMK seems
+// to get confused if a key is pressed on startup, even if it is not mapped to a
+// function.
+#define BEAM_DEAD_KEYS \
+    { 0x20004, 0x20000, 0, 0x10008 }
+
+// Calibration pads, which read as unpressed
+#define BEAM_CAL_KEYS \
+    { 0, 0, 0, 0x10008 }
