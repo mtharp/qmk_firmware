@@ -15,7 +15,7 @@ bool value_histogram(uint16_t values[][MATRIX_ROWS]) {
     static systime_t last_report = 0;
     static uint8_t   val_bins[HIST_BINS];
     for (uint8_t col = 0; col < MATRIX_COLS; col++) {
-        for (uint8_t row = 0; row < 1; row++) {
+        for (uint8_t row = 0; row < MATRIX_ROWS; row++) {
             uint8_t hist_val = values[col][row] >> HIST_SHIFT;
             if (hist_val >= HIST_BINS) {
                 hist_val = HIST_BINS - 1;

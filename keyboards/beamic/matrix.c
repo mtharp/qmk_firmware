@@ -30,11 +30,19 @@ static void timcap_init(TIM_TypeDef *tim) {
     tim->CR1 = TIM_CR1_URS | TIM_CR1_CEN;
 }
 
+static void write_col(uint8_t col, bool active) {
+    if (active) {
+        writePinLow(col_pins[col]);
+    } else {
+        writePinHigh(col_pins[col]);
+    }
+}
+
 void matrix_init_custom(void) {
     // Drive columns in open drain mode
     for (uint8_t x = 0; x < MATRIX_COLS; x++) {
-        writePinHigh(col_pins[x]);
-        palSetLineMode(col_pins[x], PAL_STM32_MODE_OUTPUT | PAL_STM32_OTYPE_OPENDRAIN | PAL_OUTPUT_SPEED_HIGHEST);
+        write_col(x, false);
+        palSetLineMode(col_pins[x], PAL_STM32_MODE_OUTPUT | PAL_OUTPUT_SPEED_HIGHEST | BEAM_COL_CONFIG);
     }
     // Assign row pins to timer input capture
     for (uint8_t x = 0; x < MATRIX_ROWS; x++) {
@@ -119,7 +127,7 @@ OSAL_IRQ_HANDLER(STM32_TIM4_HANDLER) {
 
     if (sr & TIM_SR_CC1IF) {
         // deselect previous column
-        writePinHigh(col_pins[current_column]);
+        write_col(current_column, false);
         // read raw captured values
         read_input_captures(&beam_values[current_column][0], &row_pins[0], TIM3);
 #if MATRIX_ROWS == 8
@@ -138,7 +146,7 @@ OSAL_IRQ_HANDLER(STM32_TIM4_HANDLER) {
         if (++current_column >= MATRIX_COLS) {
             current_column = 0;
         }
-        writePinLow(col_pins[current_column]);
+        write_col(current_column, true);
         // drain stale values from input captures
         (void)TIM3->CCR1;
         (void)TIM3->CCR2;
@@ -167,7 +175,7 @@ bool matrix_scan_custom(matrix_row_t current_matrix[]) {
         return false;
     }
     // histograms for calibration
-    static uint16_t max_any = 0, max_low = 0, min_high = 65535, min_any = 65535;
+    static uint16_t max_any = 0, max_low = 0, min_high = BEAM_COL_WINDOW, min_any = BEAM_COL_WINDOW;
     // convert raw readings to pressed/unpressed state
     bool changed = false;
     for (uint8_t row = 0; row < MATRIX_ROWS; row++) {
@@ -176,10 +184,21 @@ bool matrix_scan_custom(matrix_row_t current_matrix[]) {
         matrix_row_t row_dead_keys = dead_keys[row];
         for (uint8_t col = 0; col < MATRIX_COLS; col++, col_mask <<= 1) {
             uint16_t val = beam_values[col][row];
-            // if (val < BEAM_THRESHOLD) {
-            //     new_row |= col_mask;
-            // }
+#ifndef BEAM_ACTIVE_NEVER
+#    ifdef BEAM_ACTIVE_HIGH
+            if (val > BEAM_THRESHOLD) {
+#    elif defined(BEAM_ACTIVE_LOW)
+            if (val < BEAM_THRESHOLD) {
+#    else
+#        error define either BEAM_ACTIVE_HIGH or BEAM_ACTIVE_LOW
+#    endif
+                new_row |= col_mask;
+            }
+#endif
             // update calibration
+            if (val > BEAM_COL_WINDOW) {
+                val = BEAM_COL_WINDOW;
+            }
             if ((row_dead_keys & col_mask) != 0) {
                 if ((cal_keys[row] & col_mask) != 0) {
                     // calibration pad always reads as high capacitance
@@ -207,11 +226,15 @@ bool matrix_scan_custom(matrix_row_t current_matrix[]) {
         }
     }
     if (value_histogram(beam_values)) {
-        xprintf(" %hu < P < %hu < %hu < U < %hu << %hu  m=%hu %d\n", min_any, max_low, min_high, max_any, BEAM_COL_WINDOW, min_high - max_low, CAPTURE_FREQUENCY);
+        if (max_low < min_high) {
+            xprintf(" %hu < P < %hu < %hu < U < %hu << %hu  m=%hu\n", min_any, max_low, min_high, max_any, BEAM_COL_WINDOW, min_high - max_low);
+        } else {
+            xprintf(" %hu < P < %hu ! %hu < U < %hu << %hu  m=FAIL\n", min_any, max_low, min_high, max_any, BEAM_COL_WINDOW);
+        }
         max_low  = 0;
         max_any  = 0;
-        min_high = 65535;
-        min_any  = 65535;
+        min_high = BEAM_COL_WINDOW;
+        min_any  = BEAM_COL_WINDOW;
     }
     return changed;
 }
