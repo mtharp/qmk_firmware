@@ -3,18 +3,23 @@
 
 #pragma once
 
-/*
- * Feature disable options
- *  These options are also useful to firmware size reduction.
- */
+// bootloader
+#define EARLY_INIT_PERFORM_BOOTLOADER_JUMP TRUE
 
-/* disable debug print */
-//#define NO_DEBUG
+// shift register
+#define SREG_DRIVER SPID2
 
-/* disable print */
-//#define NO_PRINT
+// voltage reference
+#define VREF_DRIVER DACD1
 
-/* disable action features */
-//#define NO_ACTION_LAYER
-//#define NO_ACTION_TAPPING
-//#define NO_ACTION_ONESHOT
+// solenoid
+#define HAPTIC_ENABLE_PIN LINE_NSEN
+#define HAPTIC_ENABLE_PIN_ACTIVE_LOW TRUE
+#define HAPTIC_OFF_IN_LOW_POWER 1
+#define NO_HAPTIC_MOD 1
+#define SOLENOID_PIN LINE_TRG
+
+// eeprom
+#define I2C_DRIVER I2CD2
+#define I2C1_SCL_PIN A9
+#define I2C1_SDA_PIN A10

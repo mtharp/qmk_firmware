@@ -8,7 +8,6 @@
 #include "beam_config.h"
 #include "histogram.h"
 
-static pin_t col_pins[MATRIX_COLS] = MATRIX_COL_PINS;
 static pin_t row_pins[MATRIX_ROWS] = MATRIX_ROW_PINS;
 
 static matrix_row_t dead_keys[MATRIX_ROWS] = BEAM_DEAD_KEYS;
@@ -20,35 +19,56 @@ static event_source_t   beam_source;
 static event_listener_t beam_listener;
 
 static void timcap_init(TIM_TypeDef *tim) {
-    // Reset the count when triggered by TIM4 cycling
+    // Reset the count when triggered by TIM2 cycling
     tim->SMCR |= TIM_SMCR_SMS_2;
     // Capture rising edges
     tim->CCMR1 = TIM_CCMR1_CC1S_0 | TIM_CCMR1_CC2S_0;
     tim->CCMR2 = TIM_CCMR2_CC3S_0 | TIM_CCMR2_CC4S_0;
     tim->CCER  = TIM_CCER_CC1E | TIM_CCER_CC2E | TIM_CCER_CC3E | TIM_CCER_CC4E;
-    // Enable. TIM4 will reset to sync everything up.
+    // Enable. TIM2 will reset to sync everything up.
     tim->CR1 = TIM_CR1_URS | TIM_CR1_CEN;
 }
 
-static void write_col(uint8_t col, bool active) {
-    if (active) {
-        writePinLow(col_pins[col]);
-    } else {
-        writePinHigh(col_pins[col]);
+static void select_column(uint32_t col_bits) {
+    // drive active column low and others high
+    col_bits = ~col_bits;
+    chSysLockFromISR();
+    if (SREG_DRIVER.state == SPI_READY) {
+        spiStartSendI(&SREG_DRIVER, 3, &col_bits);
     }
+    chSysUnlockFromISR();
+}
+
+static void deselect_columns(void) {
+    // drive everything high
+    static uint32_t all_ones = 0xffffffff;
+    chSysLockFromISR();
+    if (SREG_DRIVER.state == SPI_READY) {
+        spiStartSendI(&SREG_DRIVER, 3, &all_ones);
+    }
+    chSysUnlockFromISR();
+}
+
+static void latch_column(SPIDriver *d) {
+    writePinHigh(LINE_STCP);
+    writePinLow(LINE_STCP);
 }
 
 void matrix_init_custom(void) {
-    // Drive columns in open drain mode
-    for (uint8_t x = 0; x < MATRIX_COLS; x++) {
-        write_col(x, false);
-        palSetLineMode(col_pins[x], PAL_STM32_MODE_OUTPUT | PAL_OUTPUT_SPEED_HIGHEST | BEAM_COL_CONFIG);
-    }
-    // Assign row pins to timer input capture
-    for (uint8_t x = 0; x < MATRIX_ROWS; x++) {
-        palSetLineMode(row_pins[x], PAL_MODE_ALTERNATE(TIM345_ALT_FUNC) | PAL_STM32_PUPDR_PULLUP);
-    }
-
+    // configure SPI to drive shift registers
+    static const SPIConfig spicfg = {
+        .data_cb = latch_column,
+        .cr1     = SPI_CR1_LSBFIRST,
+        .cr2     = 0,
+    };
+    spiStart(&SREG_DRIVER, &spicfg);
+    // configure DAC
+    static const DACConfig daccfg = {
+        .init     = BEAM_DAC_INITIAL,
+        .datamode = DAC_DHRM_12BIT_RIGHT,
+        .cr       = DAC_CR_BOFF1,
+    };
+    dacStart(&VREF_DRIVER, &daccfg);
     // Init beam_values with unpressed state
     for (uint8_t row = 0; row < MATRIX_ROWS; row++) {
         for (uint8_t col = 0; col < MATRIX_COLS; col++) {
@@ -60,34 +80,34 @@ void matrix_init_custom(void) {
     chEvtObjectInit(&beam_source);
     chEvtRegisterMask(&beam_source, &beam_listener, EVENT_MASK(0));
 
-    // TIM3 and TIM5 capture the time at which each row discharges back above
-    // the comparator threshold. They are reset to 0 each time TIM4 rolls over.
+    // TIM3 and TIM4 capture the time at which each row discharges back above
+    // the comparator threshold. They are reset to 0 each time TIM2 rolls over.
     rccEnableTIM3(true);
     rccResetTIM3();
-    TIM3->SMCR = 3 << TIM_SMCR_TS_Pos; // triggered by TIM4
+    TIM3->SMCR = 1 << TIM_SMCR_TS_Pos; // triggered by TIM2
     timcap_init(TIM3);
 #if MATRIX_ROWS == 8
-    rccEnableTIM5(true);
-    rccResetTIM5();
-    TIM5->SMCR = 2 << TIM_SMCR_TS_Pos; // triggered by TIM4
-    timcap_init(TIM5);
-#endif
-
-    // TIM4 runs continuously and dictates the pace of scanning the columns. It
-    // fires two interrupts: the first (set by CCR1) unselects the current
-    // column and processes the captured result, and the second (set by ARR)
-    // selects the next column.
     rccEnableTIM4(true);
     rccResetTIM4();
-    nvicEnableVector(STM32_TIM4_NUMBER, STM32_IRQ_TIM4_PRIORITY);
+    TIM4->SMCR = 1 << TIM_SMCR_TS_Pos; // triggered by TIM2
+    timcap_init(TIM4);
+#endif
 
-    TIM4->ARR  = BEAM_COL_PERIOD - 1;
-    TIM4->CR2  = TIM_CR2_MMS_1;                 // TRGO on Update Event
-    TIM4->CCR1 = BEAM_COL_WINDOW;               // set when OC triggers
-    TIM4->CCER = TIM_CCER_CC1E;                 // enable output compare
-    TIM4->DIER = TIM_DIER_CC1IE | TIM_DIER_UIE; // OC and update irqs
-    TIM4->EGR  = TIM_EGR_UG;                    // generate a reset
-    TIM4->CR1  = TIM_CR1_URS | TIM_CR1_CEN;     // start timer
+    // TIM2 runs continuously and dictates the pace of scanning the columns. It
+    // fires two interrupts: the first (set by CCR4) unselects the current
+    // column and processes the captured result, and the second (set by ARR)
+    // selects the next column.
+    rccEnableTIM2(true);
+    rccResetTIM2();
+    nvicEnableVector(STM32_TIM2_NUMBER, STM32_IRQ_TIM2_PRIORITY);
+
+    TIM2->ARR  = BEAM_COL_PERIOD - 1;
+    TIM2->CR2  = TIM_CR2_MMS_1;                 // TRGO on Update Event
+    TIM2->CCR4 = BEAM_COL_WINDOW;               // set when OC triggers
+    TIM2->CCER = TIM_CCER_CC4E;                 // enable output compare
+    TIM2->DIER = TIM_DIER_CC4IE | TIM_DIER_UIE; // OC and update irqs
+    TIM2->EGR  = TIM_EGR_UG;                    // generate a reset
+    TIM2->CR1  = TIM_CR1_URS | TIM_CR1_CEN;     // start timer
 }
 
 static void read_input_captures(uint16_t *col, pin_t *row_pins, TIM_TypeDef *timer) {
@@ -118,22 +138,23 @@ static void read_input_captures(uint16_t *col, pin_t *row_pins, TIM_TypeDef *tim
     }
 }
 
-OSAL_IRQ_HANDLER(STM32_TIM4_HANDLER) {
+OSAL_IRQ_HANDLER(STM32_TIM2_HANDLER) {
     OSAL_IRQ_PROLOGUE();
-    static uint8_t current_column = MATRIX_COLS - 1; // initial update rolls this over to 0
+    static uint32_t logical_column = MATRIX_COLS - 1; // initial update rolls this over to 0
+    static uint32_t col_mask       = 1 << 31;
     // read and clear status registers
-    uint32_t sr = TIM4->SR;
-    TIM4->SR    = ~sr;
+    uint32_t sr = TIM2->SR;
+    TIM2->SR    = ~sr;
 
-    if (sr & TIM_SR_CC1IF) {
-        // deselect previous column
-        write_col(current_column, false);
+    if (sr & TIM_SR_CC4IF) {
+        // deselect current column
+        deselect_columns();
         // read raw captured values
-        read_input_captures(&beam_values[current_column][0], &row_pins[0], TIM3);
+        read_input_captures(&beam_values[logical_column][0], &row_pins[0], TIM3);
 #if MATRIX_ROWS == 8
-        read_input_captures(&beam_values[current_column][4], &row_pins[4], TIM5);
+        read_input_captures(&beam_values[logical_column][4], &row_pins[4], TIM4);
 #endif
-        if (current_column == MATRIX_COLS - 1) {
+        if (logical_column == MATRIX_COLS - 1) {
             // wake up scan func
             chSysLockFromISR();
             chEvtBroadcastI(&beam_source);
@@ -143,20 +164,36 @@ OSAL_IRQ_HANDLER(STM32_TIM4_HANDLER) {
 
     if (sr & TIM_SR_UIF) {
         // select next column
-        if (++current_column >= MATRIX_COLS) {
-            current_column = 0;
+        if (++logical_column >= MATRIX_COLS) {
+            logical_column = 0;
+            // col0 corresponds to the MSB of the shift registers
+            col_mask = 1 << 23;
+        } else {
+            col_mask >>= 1;
         }
-        write_col(current_column, true);
+        // skip over unused columns
+        for (;; col_mask >>= 1) {
+            if ((BEAM_COLUMNS & col_mask) != 0) {
+                // use this column
+                break;
+            }
+            if (col_mask <= 1) {
+                // misconfigured - the number of 1s in BEAM_COLUMNS is < MATRIX_COLS
+                col_mask = 1 << 31;
+                break;
+            }
+        }
+        select_column(col_mask);
         // drain stale values from input captures
         (void)TIM3->CCR1;
         (void)TIM3->CCR2;
         (void)TIM3->CCR3;
         (void)TIM3->CCR4;
 #if MATRIX_ROWS == 8
-        (void)TIM5->CCR1;
-        (void)TIM5->CCR2;
-        (void)TIM5->CCR3;
-        (void)TIM5->CCR4;
+        (void)TIM4->CCR1;
+        (void)TIM4->CCR2;
+        (void)TIM4->CCR3;
+        (void)TIM4->CCR4;
 #endif
     }
     OSAL_IRQ_EPILOGUE();
@@ -168,7 +205,6 @@ OSAL_IRQ_HANDLER(STM32_TIM4_HANDLER) {
 #if BEAM_COL_PERIOD >= 65535
 #    error Timer period is too long. Increase BEAM_SCAN_RATE.
 #endif
-
 bool matrix_scan_custom(matrix_row_t current_matrix[]) {
     // wait for interrupts to scan all the raw values
     if (!chEvtWaitAnyTimeout(ALL_EVENTS, TIME_MS2I(100))) {

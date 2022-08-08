@@ -2,6 +2,7 @@
     "manufacturer": "eaglesong innov",
     "keyboard_name": "IBM 327x 75-key keyboard",
     "maintainer": "mtharp",
+    "board": "BEAMIC",
     "bootloader": "stm32-dfu",
     "diode_direction": "ROW2COL",
     "features": {
@@ -15,10 +16,12 @@
     "matrix_pins": {
         "custom": true,
         "custom_lite": true,
-        "cols": ["B0", "B1", "E7", "E8", "E9", "E10", "E11", "E12", "E13", "E14", "E15", "B11", "B12", "B13", "B14", "B15", "D8", "D9", "D10", "D11"],
-        "rows": ["C6", "B5", "C8", "C9"]
+        "cols": ["NO_PIN", "NO_PIN", "NO_PIN", "NO_PIN", "NO_PIN", "NO_PIN", "NO_PIN", "NO_PIN",
+                 "NO_PIN", "NO_PIN", "NO_PIN", "NO_PIN", "NO_PIN", "NO_PIN", "NO_PIN", "NO_PIN",
+                 "NO_PIN", "NO_PIN", "NO_PIN", "NO_PIN"],
+        "rows": ["A6", "A7", "B0", "B1"]
     },
-    "processor": "STM32F407",
+    "processor": "STM32F303",
     "url": "",
     "usb": {
         "device_version": "1.0.0",
